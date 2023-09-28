@@ -1,0 +1,440 @@
+---
+title: "ch14_Numbers"
+format: html
+editor: visual
+---
+
+### 14.1
+
+-   parse_number() and parse_double() to get numbers from strings
+
+-   count(x, wt = col_name, sort = TRUE) - wt gives sum(col_name)
+
+-   wt weighting
+
+-   n() gives number in current group, can only be used inside verbs
+
+-   Recycling rules, careful when vector len \>1
+
+-   pmin(), pmax() -pair min and pair max
+
+-   cut() - bins data
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+
+```
+
+### 14.2 Making numbers
+
+Use [`parse_double()`](https://readr.tidyverse.org/reference/parse_atomic.html) when you have numbers that have been written as strings:
+
+```{r}
+x <- c("1.2", "5.6", "1e3")
+parse_double(x)
+
+
+```
+
+Use [`parse_number()`](https://readr.tidyverse.org/reference/parse_number.html) when the string contains non-numeric text that you want to ignore.
+
+```{r}
+x <- c("$1,234", "USD 3,513", "59%")
+parse_number(x)
+#> [1] 1234 3513   59
+
+```
+
+### 14.3 Counts
+
+how much data science you can do with just counts and a little basic arithmetic, so dplyr strives to make counting as easy as possible with [`count()`](https://dplyr.tidyverse.org/reference/count.html). This function is great for quick exploration and checks during analysis:
+
+```{r}
+
+flights |> count(dest)
+
+flights |> count(dest, sort = TRUE)
+```
+
+The same computation "by hand" with [`group_by()`](https://dplyr.tidyverse.org/reference/group_by.html), [`summarize()`](https://dplyr.tidyverse.org/reference/summarise.html) and [`n()`](https://dplyr.tidyverse.org/reference/context.html) can be perform as with count. This is useful because it allows you to compute other summaries at the same time:
+
+```{r}
+flights |> 
+  group_by(dest) |> 
+  summarize(
+    n = n(),
+    delay = mean(arr_delay, na.rm = TRUE)
+  )
+
+```
+
+[`n()`](https://dplyr.tidyverse.org/reference/context.html) is a special summary function that doesn't take any arguments and instead accesses information about the "current" group
+
+-   `n_distinct(x)` counts the number of distinct (unique) values of one or more variables. For example, we could figure out which destinations are served by the most carriers:
+
+```{r}
+flights |> 
+  group_by(dest) |> 
+  summarize(carriers = n_distinct(carrier)) |> 
+  arrange(desc(carriers))
+
+```
+
+-   A weighted count is a sum. For example you could "count" the number of miles each plane flew:
+
+```{r}
+flights |> 
+  group_by(tailnum) |> 
+  summarize(miles = sum(distance))
+
+#the same as above
+flights |> count(tailnum, wt = distance)
+```
+
+\### 14.3.1 Exercises
+
+1\. How can you use count() to count the number rows with a missing value for a given variable?
+
+```{r}
+ 
+flights |>
+  filter(is.na(arr_delay)) |>
+  count()
+
+flights |>
+  count(wt = is.na(dep_time))
+  
+```
+
+2\. Expand the following calls to count() to instead use group_by(), summarize(), and arrange():
+
+```{r}
+ flights |> count(dest, sort = TRUE)
+
+
+flights |>
+  group_by(dest) |>
+  summarise(n = n()) |>
+  arrange(desc(n))
+
+# flights |> count(tailnum, wt = distance)
+flights |>
+  group_by(tailnum) |>
+  summarise(dist = sum(distance))
+  
+```
+
+14.5.4 Exercises
+
+2\. Which plane (tailnum) has the worst on-time record?
+
+```{r}
+
+
+flights |>
+  mutate(abs_arr_delay = abs(arr_delay)) |>
+  count(tailnum, wt = abs_arr_delay, sort = TRUE) 
+
+# 3. What time of day should you fly if you want to avoid delays as much as possible?
+flights |>
+  count(dep_time, wt = arr_delay) |>
+  arrange(n)
+  
+flights |> 
+  filter(!is.na(arr_delay)) |>
+  mutate(arr_delay = pmax(0,arr_delay),
+         hour = sched_dep_time %/% 100) |>
+         summarize(.by = hour,
+                   prop = mean(arr_delay > 0),
+                   mean = mean(arr_delay),
+                   median = median(arr_delay)) |> 
+           mutate(across(prop:median, min_rank, .names = "{.col}_rank")) |> # Chapter 27
+           arrange(mean_rank)
+```
+
+### 14.4.2 **Minimum and maximum**
+
+Two closely related functions are [`pmin()`](https://rdrr.io/r/base/Extremes.html) and [`pmax()`](https://rdrr.io/r/base/Extremes.html), which when given two or more variables will return the smallest or largest value in each row:
+
+```{r}
+df <- tribble(
+  ~x, ~y,
+  1,  3,
+  5,  2,
+  7, NA,
+)
+
+df |> 
+  mutate(
+    min = pmin(x, y, na.rm = TRUE),
+    max = pmax(x, y, na.rm = TRUE)
+  )
+
+```
+
+```{r}
+df |> 
+  mutate(
+    min = min(x, y, na.rm = TRUE),
+    max = max(x, y, na.rm = TRUE)
+  )
+```
+
+### 14.4.3 Modular arithmetic
+
+In R, `%/%` does integer division and `%%` computes the remainder:
+
+```{r}
+1:10 %/% 3
+
+1:10 %% 3
+
+
+flights |> 
+  mutate(
+    hour = sched_dep_time %/% 100,
+    minute = sched_dep_time %% 100,
+    .keep = "used"
+  )
+```
+
+We can combine that with the `mean(is.na(x))` trick from [Section 13.4](https://r4ds.hadley.nz/logicals#sec-logical-summaries) to see how the proportion of cancelled flights varies over the course of the day.
+
+```{r}
+flights |> 
+  group_by(hour = sched_dep_time %/% 100) |> 
+  summarize(prop_cancelled = mean(is.na(dep_time)), n = n()) |> 
+  filter(hour > 1) |> 
+  ggplot(aes(x = hour, y = prop_cancelled)) +
+  geom_line(color = "grey50") + 
+  geom_point(aes(size = n))
+```
+
+### 14.4.4 Logarithms
+
+In R, you have a choice of three logarithms: [`log()`](https://rdrr.io/r/base/Log.html) (the natural log, base e), [`log2()`](https://rdrr.io/r/base/Log.html) (base 2), and [`log10()`](https://rdrr.io/r/base/Log.html) (base 10). We recommend using [`log2()`](https://rdrr.io/r/base/Log.html) or [`log10()`](https://rdrr.io/r/base/Log.html). whereas [`log10()`](https://rdrr.io/r/base/Log.html) is easy to back-transform because (e.g.) 3 is 10\^3 = 1000.The inverse of [`log()`](https://rdrr.io/r/base/Log.html) is [`exp()`](https://rdrr.io/r/base/Log.html); to compute the inverse of [`log2()`](https://rdrr.io/r/base/Log.html) or [`log10()`](https://rdrr.io/r/base/Log.html) you'll need to use `2^` or `10^`.
+
+#### 14.4.5 Rounding
+
+```{r}
+
+round(123.456)
+
+round(123.456,2)
+
+round(123.456,-1)
+```
+
+#### 14.4.6 **Cutting numbers into ranges**
+
+Use [`cut()`](https://rdrr.io/r/base/cut.html)^[1](https://r4ds.hadley.nz/numbers#fn1)^ to break up (aka bin) a numeric vector into discrete buckets:
+
+```{r}
+x <- c(1, 2, 5, 10, 15, 20)
+cut(x, breaks = c(0, 5, 10, 15, 20))
+
+#the breaks don't need to be evenly spaced:
+x <- c(1, 2, 5, 10, 15, 20)
+cut(x, breaks = c(0, 5, 10, 15, 20))
+
+#You can optionally supply your own labels
+cut(x,
+    breaks = c(0,5,10,15,20),
+      labels = c("sm", "md", "lg", "xl")
+    )
+
+#Any values outside of the range of the breaks will become NA:
+y <- c(NA, -10, 5, 10, 30)
+cut(y, breaks = c(0, 5, 10, 15, 20))
+```
+
+### **14.4.7 Cumulative and rolling aggregates**
+
+Base R provides [`cumsum()`](https://rdrr.io/r/base/cumsum.html), [`cumprod()`](https://rdrr.io/r/base/cumsum.html), [`cummin()`](https://rdrr.io/r/base/cumsum.html), [`cummax()`](https://rdrr.io/r/base/cumsum.html) for running, or cumulative, sums, products, mins and maxes. dplyr provides [`cummean()`](https://dplyr.tidyverse.org/reference/cumall.html) for cumulative means. Cumulative sums tend to come up the most in practice:
+
+```{r}
+x <- 1:10
+cumsum(x)
+
+```
+
+## **14.5 General transformations**
+
+#### 14.5.1 dplyr provides a number of ranking functions inspired by SQL:
+
+```{r}
+x <- c(1, 2, 2, 3, 4, NA)
+dplyr::min_rank(x)
+
+min_rank(desc(x))
+```
+
+that the smallest values get the lowest ranks; use `desc(x)` to give the largest values the smallest ranks:
+
+```{r}
+
+
+df <- tibble(x = x)
+df |> 
+  mutate(
+    row_number = row_number(x),
+    dense_rank = dense_rank(x),
+    percent_rank = percent_rank(x),
+    cume_dist = cume_dist(x)
+  )
+
+df <- tibble(id = 1:10)
+
+df |> 
+  mutate(
+    row0 = row_number() - 1,
+    three_groups = row0 %% 3,
+    three_in_each_group = row0 %/% 3
+  )
+```
+
+### **14.5.2 Offsets**
+
+```{r}
+x <- c(2, 5, 11, 11, 19, 35)
+lag(x)
+
+x == lag(x)
+```
+
+### 14.5.3 **Consecutive identifiers**
+
+```{r}
+#For example, imagine you have the times when someone visited a website:
+events <- tibble(
+  time = c(0, 1, 2, 3, 5, 10, 12, 15, 17, 19, 20, 27, 28, 30)
+)
+events <- events |> 
+  mutate(
+    diff = time - lag(time, default = first(time)),
+    has_gap = diff >= 5
+  )
+events
+
+#from the logical vector above to something that we can group_by()?cumsum()
+events |> mutate(
+  group = cumsum(has_gap)
+)
+
+#Another approach for creating grouping variables is consecutive_id(), which starts a new group every time one of its arguments changes. 
+df <- tibble(
+  x = c("a", "a", "a", "b", "c", "c", "d", "e", "a", "a", "b", "b"),
+  y = c(1, 2, 3, 2, 4, 1, 3, 9, 4, 8, 10, 199)
+)
+
+#If you want to keep the first row from each repeated x, you could use group_by(), consecutive_id(), and slice_head():
+df |> 
+  group_by(id = consecutive_id(x)) |> 
+  slice_head(n = 1)
+
+```
+
+## **14.6 Numeric summaries**
+
+[`median()`](https://rdrr.io/r/stats/median.html), which finds a value that lies in the \"middle\" of the vector, i.e. 50% of the values is above it and 50% are below it.Depending on the shape of the distribution of the variable you\'re interested in, mean or median might be a better measure of center. For example, for symmetric distributions we generally report the mean while for skewed distributions we usually report the median.
+
+```{r}
+flights |>
+  group_by(year, month, day) |>
+  summarize(
+    mean = mean(dep_delay, na.rm = TRUE),
+    median = median(dep_delay, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) |> 
+  ggplot(aes(x = mean, y = median)) + 
+  geom_abline(slope = 1, intercept = 0, color = "white", linewidth = 2) +
+  geom_point()
+```
+
+#### 14.6.2 **Minimum, maximum, and quantiles**
+
+nterested in locations other than the center? [`min()`](https://rdrr.io/r/base/Extremes.html) and [`max()`](https://rdrr.io/r/base/Extremes.html) will give you the largest and smallest values. Another powerful tool is [`quantile()`](https://rdrr.io/r/stats/quantile.html) which is a generalization of the median: `quantile(x, 0.25)` will find the value of `x` that is greater than 25% of the values, `quantile(x, 0.5)` is equivalent to the median, and `quantile(x, 0.95)` will find the value that\'s greater than 95% of the values.
+
+For the `flights` data, you might want to look at the 95% quantile of delays rather than the maximum, because it will ignore the 5% of most delayed flights which can be quite extreme.
+
+```{r}
+flights |>
+  group_by(year, month, day) |>
+  summarize(
+    max = max(dep_delay, na.rm = TRUE),
+    q95 = quantile(dep_delay, 0.95, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+### **14.6.3 Spread**
+
+Two commonly used summaries are the standard deviation, `sd(x)`, and the inter-quartile range, [`IQR()`](https://rdrr.io/r/stats/IQR.html). We won\'t explain [`sd()`](https://rdrr.io/r/stats/sd.html) here since you\'re probably already familiar with it, but [`IQR()`](https://rdrr.io/r/stats/IQR.html) might be new --- it\'s `quantile(x, 0.75) - quantile(x, 0.25)` and gives you the range that contains the middle 50% of the data.
+
+We can use this to reveal a small oddity in the `flights` data. You might expect the spread of the distance between origin and destination to be zero, since airports are always in the same place. But the code below reveals a data oddity for airport [EGE](https://en.wikipedia.org/wiki/Eagle_County_Regional_Airport):
+
+```{r}
+flights |> 
+  group_by(origin, dest) |> 
+  summarize(
+    distance_sd = IQR(distance), 
+    n = n(),
+    .groups = "drop"
+  ) |> 
+  filter(distance_sd > 0)
+```
+
+### **14.6.4 Distributions**
+
+That all of the summary statistics described above are a way of reducing the distribution down to a single number. This means that they\'re fundamentally reductive, and if you pick the wrong summary, you can easily miss important differences between groups.
+
+==\>visualize the distribution before committing to your summary statistics
+
+In the following plot 365 frequency polygons of `dep_delay`, one for each day, are overlaid. The distributions seem to follow a common pattern, suggesting it\'s fine to use the same summary for each day.
+
+```{r}
+flights |>
+  filter(dep_delay < 120) |>
+  ggplot(aes(x = dep_delay, group = interaction(day, month))) +
+  geom_freqpoly(binwidth = 5, alpha = 1/5)
+```
+
+### **14.6.5 Positions**
+
+extracting a value at a specific position: `first(x)`, `last(x)`, and `nth(x, n)`
+
+Find the first and last departure for each day:
+
+```{r}
+flights |> 
+  group_by(year, month, day) |> 
+  summarize(
+    first_dep = first(dep_time, na_rm = TRUE), 
+    fifth_dep = nth(dep_time, 5, na_rm = TRUE),
+    last_dep = last(dep_time, na_rm = TRUE)
+  )
+```
+
+Extracting values at positions is complementary to filtering on ranks. Filtering gives you all variables, with each observation in a separate row:
+
+```{r}
+flights |> 
+  group_by(year, month, day) |> 
+  mutate(r = min_rank(sched_dep_time)) |> 
+  filter(r %in% c(1, max(r)))
+
+```
+
+### **14.6.6 With `mutate()`**
+
+For example:
+
+-   `x / sum(x)` calculates the proportion of a total.
+
+-   `(x - mean(x)) / sd(x)` computes a Z-score (standardized to mean 0 and sd 1).
+
+-   `(x - min(x)) / (max(x) - min(x))` standardizes to range \[0, 1\].
+
+-   `x / first(x)` computes an index based on the first observation.

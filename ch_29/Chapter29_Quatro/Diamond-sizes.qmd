@@ -1,0 +1,50 @@
+---
+title: "Diamond sizes"
+date: 2022-09-12
+format: html
+---
+
+```{r}
+#| label: setup
+library(tidyverse)
+
+smaller <- diamonds |> 
+  filter(carat <= 2.5)
+```
+
+We have data about `r nrow(diamonds)` diamonds. Only `r nrow(diamonds) - nrow(smaller)` are larger than 2.5 carats. The distribution of the remainder is shown below:
+
+```{r}
+#| label: plot-smaller-diamonds
+#| echo: false
+
+smaller |> 
+  ggplot(aes(x = carat)) + 
+  geom_freqpoly(binwidth = 0.01)
+```
+
+Figure 1: Diamonds carats....
+
+To enforce this, set fig-width: 6 (6") and fig-asp: 0.618 (the golden ratio) in the defaults.
+
+We suggest to out-width: "70%" and fig-align: center.
+
+```{r}
+#| label: plot-smaller-diamonds
+#| echo: false
+
+smaller |> 
+  ggplot(aes(x = carat)) + 
+  geom_freqpoly(binwidth = 0.01) +
+  fig-width: 10
+```
+
+```{r}
+
+#label: tbl-gtTable
+knitr::kable(mtcars[1:5, ], )
+```
+
+knitr::kable(mtcars\[1:5, \], )
+
+[?knitr::kable](https://rdrr.io/pkg/knitr/man/kable.html)

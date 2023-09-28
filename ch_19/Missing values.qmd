@@ -1,0 +1,218 @@
+---
+title: "Missing values"
+format: html
+editor: visual
+---
+
+## 19.1 Introduction
+
+### 19.1.1 Prerequisites
+
+```{r}
+library(tidyverse)
+```
+
+### 19.2 Explicit missing values
+
+### **19.2.1 Last observation carried forward**
+
+```{r}
+treatment <- tribble(
+  ~person,           ~treatment, ~response,
+  "Derrick Whitmore", 1,         7,
+  NA,                 2,         10,
+  NA,                 3,         NA,
+  "Katherine Burke",  1,         4
+)
+treatment
+treatment |>
+  fill(everything())
+```
+
+### **19.2.2 Fixed values**
+
+```{r}
+x <- c(1, 4, 5, 7, NA)
+coalesce(x, 0)
+
+x <- c(1, 4, 5, 7, -99)
+na_if(x, -99)
+```
+
+### **19.2.3 NaN**
+
+#NaN = not a number
+
+```{r}
+
+x <- c(NA, NaN)
+x * 10
+
+x == 1
+
+is.na(x)
+#a NaN when you perform a mathematical operation that has an indeterminate result:
+0 / 0
+
+0 * Inf
+
+Inf - Inf
+
+sqrt(-1)
+
+```
+
+## **19.3 Implicit missing values**
+
+Missing values can also be **implicitly** missing, if an entire row of data is simply absent from the data.
+
+```{r}
+stocks <- tibble(
+  year  = c(2020, 2020, 2020, 2020, 2021, 2021, 2021),
+  qtr   = c(   1,    2,    3,    4,    2,    3,    4),
+  price = c(1.88, 0.59, 0.35,   NA, 0.92, 0.17, 2.66)
+)
+stocks
+```
+
+The dataset has 2 missing observations:
+
+-   The `price` in the fourth quarter of 2020 is explicitly missing, because its value is `NA`.
+
+-   The `price` for the first quarter of 2021 is implicitly missing, because it simply does not appear in the dataset.
+
+### **19.3.1 Pivoting**
+
+You've already seen one tool that can make implicit missings explicit and vice versa: pivoting.
+
+```{r}
+stocks |>
+  pivot_wider(
+    names_from = qtr, 
+    values_from = price
+  )
+```
+
+### **19.3.2 Complete**
+
+```{r}
+stocks |>
+  complete(year, qtr)
+
+stocks |>
+  complete(year = 2019:2021, qtr)
+```
+
+### **19.3.3 Joins**
+
+`dplyr::anti_join(x, y)` is a particularly useful tool here because it selects only the rows in `x` that don't have a match in `y`
+
+```{r}
+library(nycflights13)
+
+flights |> 
+  distinct(faa = dest) |> 
+  anti_join(airports)
+
+flights |> 
+  distinct(tailnum) |> 
+  anti_join(planes)
+```
+
+#### Exercise 19.3.4
+
+##### Exercise 1
+
+1.  Can you find any relationship between the carrier and the rows that appear to be missing from `planes`?
+
+    ```{r}
+    missing_planes <- flights |> 
+      distinct(tailnum) |> 
+      anti_join(planes, by = join_by("tailnum")) |> 
+      pull()
+
+    flights |> 
+      distinct(tailnum, carrier) |> 
+      mutate(
+        listed = !(tailnum %in% missing_planes)
+      ) |> 
+      left_join(
+        by = join_by("carrier"),
+        airlines |> mutate(name = str_replace(name,"^(\\w*).*","\\1"))
+      ) |> 
+      group_by(name) |>
+      ggplot(aes(y = name, fill = listed)) + geom_bar(position="stack")
+    ```
+
+## **19.4 Factors and empty groups**
+
+A final type of missingness is the empty group, a group that doesn't contain any observations, which can arise when working with factors.
+
+```{r}
+health <- tibble(
+  name   = c("Ikaia", "Oletta", "Leriah", "Dashay", "Tresaun"),
+  smoker = factor(c("no", "no", "no", "no", "no"), levels = c("yes", "no")),
+  age    = c(34, 88, 75, 47, 56),
+)
+```
+
+#### #count the number of smokers
+
+```{r}
+health |> count(smoker)
+health |> count(smoker, .drop = FALSE)
+```
+
+The same principle applies to ggplot2's discrete axes, which will also drop levels that don't have any values. You can force them to display by supplying `drop = FALSE` to the appropriate discrete axis:
+
+```{r}
+ggplot(health, aes(x = smoker)) +
+  geom_bar() +
+  scale_x_discrete()
+
+ggplot(health, aes(x = smoker)) +
+  geom_bar() +
+  scale_x_discrete(drop = FALSE)
+```
+
+```{r}
+health |> 
+  group_by(smoker, .drop = FALSE) |> 
+  summarize(
+    n = n(),
+    mean_age = mean(age),
+    min_age = min(age),
+    max_age = max(age),
+    sd_age = sd(age)
+  )
+```
+
+```{r}
+# A vector containing two missing values
+x1 <- c(NA, NA)
+length(x1)
+
+# A vector containing nothing
+x2 <- numeric()
+length(x2)
+```
+
+Sometimes a simpler approach is to perform the summary and then make the implicit missings explicit with [`complete()`](https://tidyr.tidyverse.org/reference/complete.html).
+
+```{r}
+health |> 
+  group_by(smoker) |> 
+  summarize(
+    n = n(),
+    mean_age = mean(age),
+    min_age = min(age),
+    max_age = max(age),
+    sd_age = sd(age)
+  ) |> 
+  complete(smoker)
+
+```
+
+## **19.5 Summary**
+
+Missing values are weird! Sometimes they're recorded as an explicit `NA` but other times you only notice them by their absence.

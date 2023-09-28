@@ -1,0 +1,324 @@
+---
+title: "Factors"
+format: html
+editor: visual
+---
+
+## 17.1 Introduction
+
+### 17.1 Prerequisites
+
+```{r}
+library(tidyverse)
+```
+
+### 17.2 Factor basics
+
+```{r}
+#| echo: false
+x1 <- c("Dec", "Apr", "Jan", "Mar")
+
+sort(x1)
+
+month_levels <- c(
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+)
+
+y1 <- factor(x1, levels = month_levels)
+y1
+
+sort(y1)
+```
+
+```{r}
+x2 <- c("Dec", "Apr", "Jam", "Mar")
+y2 <- factor(x2, levels = month_levels)
+y2
+
+```
+
+```{r}
+y2 <- fct(x2, levels = month_levels)
+```
+
+```{r}
+factor(x1)
+
+#Sorting alphabetically is slightly risky because not every computer will sort strings in the same way. So forcats::fct() orders by first appearance:
+fct(x1)
+
+# to access the set of valid levels directly
+levels(y2)
+
+#create a factor when reading your data with readr with col_factor():
+csv <- "
+month, value
+Jan, 12
+Feb, 56,
+Mar, 12"
+
+df <- read_csv(csv, col_types = cols(month=  col_factor(month_levels)))
+df$month
+```
+
+## **17.3 General Social Survey**
+
+```{r}
+gss_cat
+```
+
+```{r}
+?gss_cat
+
+gss_cat |>
+  count(race)
+```
+
+#### 17.4 Modifying factor order
+
+Changing the orders of the levels
+
+```{r}
+#avg number of hours spent watching TV per day across religions
+
+relig_summary <- gss_cat |>
+  group_by(relig) |>
+  summarize (
+    tvhours = mean(tvhours, na.rm = TRUE),
+    n = n()
+  )
+
+ggplot(relig_summary, aes(x = tvhours, y = relig)) + 
+  geom_point()
+```
+
+```{r}
+ggplot(relig_summary, aes(x = tvhours, y = fct_reorder(relig, tvhours))) +
+  geom_point()
+```
+
+```{r}
+relig_summary |>
+  mutate(
+    relig = fct_reorder(relig, tvhours)
+  ) |>
+  ggplot(aes(x = tvhours, y = relig)) +
+  geom_point()
+
+```
+
+```{r}
+#plot looking at how average age varies across reported income level
+rincome_summary <- gss_cat |>
+  group_by(rincome) |>
+  summarize(
+    age = mean(age, na.rm = TRUE),
+    n = n()
+  )
+
+ggplot(rincome_summary, aes(x = age, y = fct_reorder(rincome, age))) + 
+  geom_point()
+```
+
+```{r}
+ggplot(rincome_summary, aes(x = age, y = fct_relevel(rincome, "Not applicable"))) +
+  geom_point()
+```
+
+Another type of reordering is useful when you are coloring the lines on a plot. fct_reorder2(f, x, y) reorders the factor f by the y values associated with the largest x values.
+
+```{r}
+
+by_age <- gss_cat |>
+  filter(!is.na(age)) |> 
+  count(age, marital) |>
+  group_by(age) |>
+  mutate(
+    prop = n / sum(n)
+  )
+
+ggplot(by_age, aes(x = age, y = prop, color = marital)) +
+  geom_line(linewidth = 1) + 
+  scale_color_brewer(palette = "Set1")
+
+ggplot(by_age, aes(x = age, y = prop, color = fct_reorder2(marital, age, prop))) +
+  geom_line(linewidth = 1) +
+  scale_color_brewer(palette = "Set1") + 
+  labs(color = "marital") 
+
+```
+
+you can use [`fct_infreq()`](https://forcats.tidyverse.org/reference/fct_inorder.html) to order levels in decreasing frequency: this is the simplest type of reordering because it doesn't need any extra variables.
+
+```{r}
+gss_cat |>
+  mutate(marital = marital |> fct_infreq() |> fct_rev()) |>
+  ggplot(aes(x = marital)) +
+  geom_bar()
+```
+
+## **17.5 Modifying factor levels**
+
+```{r}
+gss_cat |> count(partyid)
+```
+
+```{r}
+gss_cat |>
+  mutate(
+    partyid = fct_recode(partyid,
+      "Republican, strong"    = "Strong republican",
+      "Republican, weak"      = "Not str republican",
+      "Independent, near rep" = "Ind,near rep",
+      "Independent, near dem" = "Ind,near dem",
+      "Democrat, weak"        = "Not str democrat",
+      "Democrat, strong"      = "Strong democrat"
+    )
+  ) |>
+  count(partyid)
+
+```
+
+[`fct_recode()`](https://forcats.tidyverse.org/reference/fct_recode.html) will leave the levels that aren't explicitly mentioned as is, and will warn you if you accidentally refer to a level that doesn't exist.
+
+```{r}
+#to combine groups, you can assign multiple old levels to the same new level:
+gss_cat |>
+  mutate(
+    partyid = fct_recode(partyid,
+      "Republican, strong"    = "Strong republican",
+      "Republican, weak"      = "Not str republican",
+      "Independent, near rep" = "Ind,near rep",
+      "Independent, near dem" = "Ind,near dem",
+      "Democrat, weak"        = "Not str democrat",
+      "Democrat, strong"      = "Strong democrat",
+      "Other"                 = "No answer",
+      "Other"                 = "Don't know",
+      "Other"                 = "Other party"
+    )
+  )
+
+```
+
+Use this technique with care: if you group together categories that are truly different you will end up with misleading results. If you want to collapse a lot of levels, [`fct_collapse()`](https://forcats.tidyverse.org/reference/fct_collapse.html) is a useful variant of [`fct_recode()`](https://forcats.tidyverse.org/reference/fct_recode.html).
+
+```{r}
+gss_cat |>
+  mutate(
+    partyid = fct_collapse(partyid,
+      "other" = c("No answer", "Don't know", "Other party"),
+      "rep" = c("Strong republican", "Not str republican"),
+      "ind" = c("Ind,near rep", "Independent", "Ind,near dem"),
+      "dem" = c("Not str democrat", "Strong democrat")
+    )
+  ) |>
+  count(partyid)
+```
+
+Lump together the small groups to make a plot or table simpler. That's the job of the `fct_lump_*()` family of functions. [`fct_lump_lowfreq()`](https://forcats.tidyverse.org/reference/fct_lump.html) is a simple starting point that progressively lumps the smallest groups categories into "Other", always keeping "Other" as the smallest category.
+
+```{r}
+gss_cat |>
+  mutate(relig = fct_lump_lowfreq(relig)) |>
+  count(relig)
+```
+
+As shown, it is true that the majority of Americans in this survey are Protestant.
+
+```{r}
+gss_cat |>
+  mutate(relig = fct_lump_n(relig, n = 10)) |>
+  count(relig, sort = TRUE)
+```
+
+##### 17.5.1
+
+##### Exercise 1
+
+1.  How have the proportions of people identifying as Democrat, Republican, and Independent changed over time?
+
+```{r}
+group_partyid <- gss_cat |>
+  mutate(
+    partyid = fct_collapse(partyid,
+      "other" = c("No answer", "Don't know", "Other party"),
+      "rep" = c("Strong republican", "Not str republican"),
+      "ind" = c("Ind,near rep", "Independent", "Ind,near dem"),
+  "dem" = c("Not str democrat", "Strong democrat")  
+  )) |>
+  count(year, partyid) |>
+  mutate (
+  )
+group_partyid
+
+ggplot(group_partyid, aes(x = year, y = prop, color = partyid, year, prop)) +
+  geom_line(linewidth = 1) +
+  labs(color = "Partyid")
+```
+
+Solution
+
+```{r}
+#How have the proportions of people identifying as Democrat,
+#Republican, and Independent changed over time?
+gss_cat |>
+  mutate(
+    partyid = fct_recode(partyid,
+                         "Republican, strong"    = "Strong republican",
+                         "Republican, weak"      = "Not str republican",
+                         "Independent, near rep" = "Ind,near rep",
+                         "Independent, near dem" = "Ind,near dem",
+                         "Democrat, weak"        = "Not str democrat",
+                         "Democrat, strong"      = "Strong democrat"
+    )
+  ) ->gsscat
+by_year <- gsscat |>
+  #filter(!is.na(year)) |> 
+  count(year, partyid,.drop=F) |>
+  group_by(year,.drop=FALSE) |>
+  mutate(
+    prop = n / sum(n)
+  )
+by_year|>subset(partyid=="Don't know")
+ggplot(by_year,aes(year,prop,col=partyid))+geom_point(lwd=2)+geom_line(lwd=1.5)+
+  scale_colour_manual(values=
+                        c("grey","pink","black",
+                          brewer.pal(name="Spectral",
+                                     n=7)))+
+  theme_bw()
+```
+
+\#\
+https://ggplot2-book.org/annotations.html#sec-custom-annotations
+
+```{r}
+gss_cat |>
+  # Filter out data
+  filter(!is.na(partyid), partyid != "Not Sure", partyid != "No answer", partyid != "Other party", partyid != "Don't know") %>% 
+  # Group by year and party, then count occurrences
+  group_by(year, partyid) %>%
+  summarise(count = n()) %>%
+  # Calculate proportions for each year and plot it
+  mutate(prop = count / sum(count)) %>%
+  ggplot(aes(x = year, y = prop, fill = partyid)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  ylab("Proportion") +
+  xlab("Year")
+```
+
+### 17.6 **Ordered factors**
+
+Ordered factors, created with [`ordered()`](https://rdrr.io/r/base/factor.html), imply a strict ordering and equal distance between levels: the first level is "less than" the second level by the same amount that the second level is "less than" the third level, and so on.
+
+```{r}
+ordered(c("a", "b", "c"))
+```
+
+-   If you map an ordered factor to color or fill in ggplot2, it will default to `scale_color_viridis()`/`scale_fill_viridis()`, a color scale that implies a ranking.
+
+-   If you map an ordered factor to color or fill in ggplot2, it will default to `scale_color_viridis()`/`scale_fill_viridis()`, a color scale that implies a ranking.
+
+### 17.7 Summary
+
+Introduced handy forcats package for working with factors, introducing you to the most commonly used functions.

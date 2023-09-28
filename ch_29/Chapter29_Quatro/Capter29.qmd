@@ -1,0 +1,74 @@
+---
+title: "Quatro_chapter29"
+format: html
+editor: visual
+bibliography: references.bib
+---
+
+## Text formatting
+
+Rendering:saving the format we selcted instead of just R studio
+
+***italic*** **bold** [underline]{.underline} ~~strikeout~~ [SMALL CAPS]{.smallcaps} `code` superscript^2^ and subscript~2~/ <https://quarto.org>.
+
+## Headings
+
+# 1st Level Header
+
+## 2nd Level Header
+
+### 3rd Level Header
+
+## Lists
+
+-   Bulleted list item 1
+
+-   Item 2
+
+    -   Item 2a
+
+    -   Item 2b
+
+1.  Numbering List item 1
+
+2.  Item 2
+
+## Links and images
+
+<http://example.com>
+
+[linked phrase](http://example.com)
+
+![optional caption text](quarto.png){fig-alt="Quarto logo and the word quarto spelled in small case letters"}
+
+## Tables
+
+| First Header | Second Header |
+|--------------|---------------|
+| Content Cell | Content Cell  |
+| Content Cell | Content Cell  |
+
+Insert citation: [@wickham2019]
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+1 + 1
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+|     |     |     |
+|-----|-----|-----|
+|     |     |     |
+|     |     |     |
+|     |     |     |

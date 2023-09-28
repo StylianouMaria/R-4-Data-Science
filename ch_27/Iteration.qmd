@@ -1,0 +1,696 @@
+---
+title: "Functions"
+format: html
+editor: visual
+---
+
+## Iteration
+
+### **27.1 Introduction**
+
+Tools that perform the same action for multiple “things”
+
+-   facet_wrap() and facet_grid() draws a plot for each subset.
+
+-   group_by() plus summarize() computes summary statistics for each subset.
+
+-   unnest_wider() and unnest_longer() create new rows and columns for each element of a list-column.
+
+### **27.1.1 Prerequisites**
+
+```{r}
+library(tidyverse)
+```
+
+## **27.2 Modifying multiple columns**
+
+Count the number of observations and compute the median of every column:
+
+```{r}
+df <- tibble(
+  a = rnorm(10),
+  b = rnorm(10),
+  c = rnorm(10),
+  d = rnorm(10)
+)
+
+df |> summarize(
+  n = n(),
+  a = median(a),
+  b = median(b),
+  c = median(c),
+  d = median(d),
+)
+
+df |> summarize(
+  n = n(),
+  across(a:d, median),
+)
+```
+
+across() has three particularly important arguments, which we’ll discuss in detail in the following sections. You’ll use the first two every time you use across(): the first argument, .cols, specifies which columns you want to iterate over, and the second argument, .fns, specifies what to do with each column.
+
+### 27.2.1 ** Selecting columns with .cols**
+
+To write a function you need to first analyse your repeated code to figure what parts are constant and what parts vary.
+
+it\'s a little easier to see the pattern because each repetition is now one line:
+
+```{r}
+df <- tibble(
+  grp = sample(2, 10, replace = TRUE),
+  a = rnorm(10),
+  b = rnorm(10),
+  c = rnorm(10),
+  d = rnorm(10)
+)
+
+df |> 
+  group_by(grp) |> 
+  summarize(across(everything(), median))
+#> # A tibble: 2 × 5
+#>     grp       a       b     c     d
+#>   <int>   <dbl>   <dbl> <dbl> <dbl>
+#> 1     1 -0.0935 -0.0163 0.363 0.364
+#> 2     2  0.312  -0.0576 0.208 0.565
+```
+
+where() allows you to select columns based on their type:
+
+-   where(is.numeric) selects all numeric columns.
+-   where(is.character) selects all string columns.
+-   where(is.Date) selects all date columns.
+-   where(is.POSIXct) selects all date-time columns.
+-   where(is.logical) selects all logical columns.
+
+### **27.2.2 Calling a single function**
+```{r}
+df |> 
+  group_by(grp) |> 
+  summarize(across(everything(), median()))
+```
+This error arises because you’re calling the function with no input.
+
+
+### **27.2.3 Calling multiple functions**
+
+
+```{r}
+rnorm_na <- function(n, n_na, mean = 0, sd = 1) {
+  sample(c(rnorm(n - n_na, mean = mean, sd = sd), rep(NA, n_na)))
+}
+
+df_miss <- tibble(
+  a = rnorm_na(5, 1),
+  b = rnorm_na(5, 1),
+  c = rnorm_na(5, 2),
+  d = rnorm(5)
+)
+df_miss |> 
+  summarize(
+    across(a:d, median),
+    n = n()
+  )
+
+```
+
+It would be nice if we could pass along na.rm = TRUE to median() to remove these missing values. 
+
+```{r}
+df_miss |> 
+  summarize(
+    across(a:d, function(x) median(x, na.rm = TRUE)),
+    n = n()
+  )
+)
+
+df_miss |> 
+  summarize(
+    across(a:d, \(x) median(x, na.rm = TRUE)),
+    n = n()
+  )
+
+df_miss |> 
+  summarize(
+    a = median(a, na.rm = TRUE),
+    b = median(b, na.rm = TRUE),
+    c = median(c, na.rm = TRUE),
+    d = median(d, na.rm = TRUE),
+    n = n()
+  )
+```
+
+When we remove the missing values from the median(), it would be nice to know just how many values were removed. .
+
+**
+
+```{r}
+df_miss |> 
+  summarize(
+    across(a:d, list(
+      median = \(x) median(x, na.rm = TRUE),
+      n_miss = \(x) sum(is.na(x))
+    )),
+    n = n()
+  )
+
+```
+
+### **27.2.4 Column names**
+
+The result of across() is named according to the specification provided in the .names argument.
+
+```{r}
+df_miss |> 
+  summarize(
+    across(
+      a:d,
+      list(
+        median = \(x) median(x, na.rm = TRUE),
+        n_miss = \(x) sum(is.na(x))
+      ),
+      .names = "{.fn}_{.col}"
+    ),
+    n = n(),
+  )
+}
+
+df_miss |> 
+  summarize(
+    across(
+      a:d,
+      list(
+        median = \(x) median(x, na.rm = TRUE),
+        n_miss = \(x) sum(is.na(x))
+      ),
+      .names = "{.fn}_{.col}"
+    ),
+    n = n(),
+  )
+
+#create new columns, you can use the .names argument to give the output new names
+df_miss |> 
+  mutate(
+    across(a:d, \(x) abs(x), .names = "{.col}_abs")
+  )
+
+```
+
+
+### **27.2.6 across() in functions**
+Use this little helper which wraps a bunch of lubridate functions to expand all date columns into year, month, and day columns:
+
+```{r}
+expand_dates <- function(df) {
+  df |> 
+    mutate(
+      across(where(is.Date), list(year = year, month = month, day = mday))
+    )
+}
+
+df_date <- tibble(
+  name = c("Amy", "Bob"),
+  date = ymd(c("2009-08-03", "2010-01-16"))
+)
+
+df_date |> 
+  expand_dates()```
+
+
+across() also makes it easy to supply multiple columns in a single argument because the first argument uses tidy-select; you just need to remember to embrace that argument, as we discussed in Section 26.3.2.
+```{r}
+summarize_means <- function(df, summary_vars = where(is.numeric)) {
+  df |> 
+    summarize(
+      across({{ summary_vars }}, \(x) mean(x, na.rm = TRUE)),
+      n = n()
+    )
+}
+diamonds |> 
+  group_by(cut) |> 
+  summarize_means()
+
+diamonds |> 
+  group_by(cut) |> 
+  summarize_means(c(carat, x:z))
+```
+
+For example, if you have a bunch of variables that record missing values as 997, 998, or 999, you might want to write a function to replace them with `NA`:
+
+```{r}
+fix_na <- function(x) {
+  if_else(x %in% c(997, 998, 999), NA, x)
+}
+```
+
+### **27.2.7 Vs pivot_longer()**
+
+Before we go on, it’s worth pointing out an interesting connection between across() and pivot_longer() (Section 6.3). In many cases, you perform the same calculations by first pivoting the data and then performing the operations by group rather than by column. For example, take this multi-function summary:
+
+
+```{r}
+df |> 
+  summarize(across(a:d, list(median = median, mean = mean)))
+
+#We could compute the same values by pivoting longer and then summarizing:
+
+long <- df |> 
+  pivot_longer(a:d) |> 
+  group_by(name) |> 
+  summarize(
+    median = median(value),
+    mean = mean(value)
+  )
+long
+
+#And if you wanted the same structure as across() you could pivot again:
+
+long |> 
+  pivot_wider(
+    names_from = name,
+    values_from = c(median, mean),
+    names_vary = "slowest",
+    names_glue = "{name}_{.value}"
+  )
+
+```
+
+For example, imagine that our data frame contains both values and weights and we want to compute a weighted mean:
+
+```{r}
+df_paired <- tibble(
+  a_val = rnorm(10),
+  a_wts = runif(10),
+  b_val = rnorm(10),
+  b_wts = runif(10),
+  c_val = rnorm(10),
+  c_wts = runif(10),
+  d_val = rnorm(10),
+  d_wts = runif(10)
+)
+
+df_long <- df_paired |> 
+  pivot_longer(
+    everything(), 
+    names_to = c("group", ".value"), 
+    names_sep = "_"
+  )
+df_long
+
+df_long |> 
+  group_by(group) |> 
+  summarize(mean = weighted.mean(val, wts))
+
+```
+
+You can also write functions with multiple vector inputs.
+
+```{r}
+# https://twitter.com/neilgcurrie/status/1571607727255834625
+mape <- function(actual, predicted) {
+  sum(abs((actual - predicted) / actual)) / length(actual)
+}
+
+```
+
+
+
+## **27.2.8 Excercices:s** 
+1) Practice your across() skills by:
+    
+    1.1: Computing the number of unique values in each column of palmerpenguins::penguins.
+    
+    ```{r}
+    penguins |>
+  summarise(across(everything(), ~length(unique(.))))
+    ```
+    
+    1.2: Computing the mean of every column in mtcars.
+    ```{r}
+    mtcars |>
+  summarise(across(everything(), mean, na.rm = TRUE))
+    ```
+    
+    
+    1.3: Grouping diamonds by cut, clarity, and color then counting the number of observations and computing the mean of each numeric column.
+```{r}
+diamonds |>
+  group_by(cut, clarity, color) %>%
+  summarise(
+    n = n(),  # Count number of observations
+    across(where(is.numeric), mean, na.rm = TRUE)  # Compute mean for numeric columns
+  )
+
+2) What happens if you use a list of functions in across(), but don’t name them? How is the output named?
+
+If you use a list of functions in across() without naming them, the output columns will be named by combining the original column name with the name of the function, separated by an underscore.
+
+
+3) Adjust expand_dates() to automatically remove the date columns after they’ve been expanded. Do you need to embrace any arguments?
+
+
+
+
+### **27.3 Reading multiple files**
+
+In the previous section, you learned how to use dplyr::across() to repeat a transformation on multiple columns. In this section, you’ll learn how to use purrr::map() to do something to every file in a directory. Let’s start with a little motivation: imagine you have a directory full of excel spreadsheets5 you want to read. You could do it with copy and paste:
+
+
+```{r}
+data2019 <- readxl::read_excel("data/y2019.xlsx")
+data2020 <- readxl::read_excel("data/y2020.xlsx")
+data2021 <- readxl::read_excel("data/y2021.xlsx")
+data2022 <- readxl::read_excel("data/y2022.xlsx")
+
+#And then use dplyr::bind_rows() to combine them all together:
+
+data <- bind_rows(data2019, data2020, data2021, data2022)
+
+```
+
+### **27.3.1 Listing files in a directory**
+
+```{r}
+paths <- list.files("data/gapminder", pattern = "[.]xlsx$", full.names = TRUE)
+paths
+
+```
+
+### **27.3.2 Lists**
+
+
+```{r}
+gapminder_1952 <- readxl::read_excel("data/gapminder/1952.xlsx")
+gapminder_1957 <- readxl::read_excel("data/gapminder/1957.xlsx")
+gapminder_1962 <- readxl::read_excel("data/gapminder/1962.xlsx")
+ ...,
+gapminder_2007 <- readxl::read_excel("data/gapminder/2007.xlsx")
+```
+
+But putting each sheet into its own variable is going to make it hard to work with them a few steps down the road. Instead, they’ll be easier to work with if we put them into a single object. A list is the perfect tool for this job:
+
+```{r}
+files <- list(
+  readxl::read_excel("data/gapminder/1952.xlsx"),
+  readxl::read_excel("data/gapminder/1957.xlsx"),
+  readxl::read_excel("data/gapminder/1962.xlsx"),
+  ...,
+  readxl::read_excel("data/gapminder/2007.xlsx")
+)
+
+#Now that you have these data frames in a list, how do you get one out? You can use files[[i]] to extract the ith element:
+files[[3]]
+
+```
+
+### **27.3.3 purrr::map() and list_rbind(**
+
+The code to collect those data frames in a list “by hand” is basically just as tedious to type as code that reads the files one-by-one. Happily, we can use purrr::map() to make even better use of our paths vector. map() is similar toacross(), but instead of doing something to each column in a data frame, 
+
+```{r}
+list(
+  f(x[[1]]),
+  f(x[[2]]),
+  ...,
+  f(x[[n]])
+)
+
+#So we can use map() to get a list of 12 data frames:
+
+files <- map(paths, readxl::read_excel)
+length(files)
+#> [1] 12
+
+files[[1]]
+
+#purrr::list_rbind() to combine that list of data frames into a single data frame:
+list_rbind(files)
+
+#or
+paths |> 
+  map(readxl::read_excel) |> 
+  list_rbind()
+
+
+#or
+paths |> 
+  map(\(path) readxl::read_excel(path, n_max = 1)) |> 
+  list_rbind()
+```
+
+
+### **27.3.4 Data in the path**
+```{r}
+paths |> set_names(basename) 
+
+files <- paths |> 
+  set_names(basename) |> 
+  map(readxl::read_excel)
+
+files <- list(
+  "1952.xlsx" = readxl::read_excel("data/gapminder/1952.xlsx"),
+  "1957.xlsx" = readxl::read_excel("data/gapminder/1957.xlsx"),
+  "1962.xlsx" = readxl::read_excel("data/gapminder/1962.xlsx"),
+  ...,
+  "2007.xlsx" = readxl::read_excel("data/gapminder/2007.xlsx")
+)
+```
+
+```{r}
+files[["1962.xlsx"]]
+```
+
+Then we use the names_to argument to list_rbind() to tell it to save the names into a new column called year then use readr::parse_number() to extract the number from the string.
+
+```{r}
+paths |> 
+  set_names(basename) |> 
+  map(readxl::read_excel) |> 
+  list_rbind(names_to = "year") |> 
+  mutate(year = parse_number(year))
+
+```
+
+In more complicated cases, there might be other variables stored in the directory name, or maybe the file name contains multiple bits of data. In that case, use set_names() (without any arguments) to record the full path, and then use tidyr::separate_wider_delim() and friends to turn them into useful columns.
+
+
+```{r}
+paths |> 
+  set_names() |> 
+  map(readxl::read_excel) |> 
+  list_rbind(names_to = "year") |> 
+  separate_wider_delim(year, delim = "/", names = c(NA, "dir", "file")) |> 
+  separate_wider_delim(file, delim = ".", names = c("file", "ext"))
+```
+
+## **27.3.5 Save your work**
+
+Now that you’ve done all this hard work to get to a nice tidy data frame, it’s a great time to save your work
+
+```{r}
+gapminder <- paths |> 
+  set_names(basename) |> 
+  map(readxl::read_excel) |> 
+  list_rbind(names_to = "year") |> 
+  mutate(year = parse_number(year))
+
+write_csv(gapminder, "gapminder.csv")
+```
+
+## **27.3.6 Many simple iterations**
+
+For example, imagine that you want to read in a bunch of files, filter out missing values, pivot, and then combine. One way to approach the problem is to write a function that takes a file and does all those steps then call map() once:
+
+
+```{r}
+process_file <- function(path) {
+  df <- read_csv(path)
+  
+  df |> 
+    filter(!is.na(id)) |> 
+    mutate(id = tolower(id)) |> 
+    pivot_longer(jan:dec, names_to = "month")
+}
+
+paths |> 
+  map(process_file) |> 
+  list_rbind()
+```
+
+
+
+```{r}
+paths |> 
+  map(read_csv) |> 
+  map(\(df) df |> filter(!is.na(id))) |> 
+  map(\(df) df |> mutate(id = tolower(id))) |> 
+  map(\(df) df |> pivot_longer(jan:dec, names_to = "month")) |> 
+  list_rbind()
+```
+
+```{r}
+paths |> 
+  map(read_csv) |> 
+  list_rbind() |> 
+  filter(!is.na(id)) |> 
+  mutate(id = tolower(id)) |> 
+  pivot_longer(jan:dec, names_to = "month")
+```
+
+### **27.3.7 Heterogeneous data**
+
+Unfortunately, sometimes it’s not possible to go from map() straight to list_rbind() because the data frames are so heterogeneous that list_rbind() either fails or yields a data frame that’s not very useful. In that case
+
+```{r}
+files <- paths |> 
+  map(readxl::read_excel) 
+```
+
+Then a very useful strategy is to capture the structure of the data frames so that you can explore it using your data science skills. 
+
+```{r}
+df_types <- function(df) {
+  tibble(
+    col_name = names(df), 
+    col_type = map_chr(df, vctrs::vec_ptype_full),
+    n_miss = map_int(df, \(x) sum(is.na(x)))
+  )
+}
+
+df_types(gapminder)
+```
+
+
+
+
+```{r}
+files |> 
+  map(df_types) |> 
+  list_rbind(names_to = "file_name") |> 
+  select(-n_miss) |> 
+  pivot_wider(names_from = col_name, values_from = col_type)
+```
+
+
+### **27.3.8 Handling failures**
+
+
+```{r}
+files <- paths |> 
+  map(possibly(\(path) readxl::read_excel(path), NULL))
+
+data <- files |> list_rbind()
+
+failed <- map_vec(files, is.null)
+paths[failed]
+```
+
+### **27.4 Saving multiple outputs**
+
+
+### ** 27.4.1 Writing to a database **
+```{r}
+con <- DBI::dbConnect(duckdb::duckdb())
+duckdb::duckdb_read_csv(con, "gapminder", paths)
+```
+Creating a template, a dummy data frame that contains all the columns we want, but only a sampling of the data. For the gapminder data, we can make that template by reading a single file and adding the year to it:
+
+
+
+```{r}
+template <- readxl::read_excel(paths[[1]])
+template$year <- 1952
+template
+
+con <- DBI::dbConnect(duckdb::duckdb())
+DBI::dbCreateTable(con, "gapminder", template)
+
+con |> tbl("gapminder")
+
+
+append_file <- function(path) {
+  df <- readxl::read_excel(path)
+  df$year <- parse_number(basename(path))
+  
+  DBI::dbAppendTable(con, "gapminder", df)
+}
+
+```
+
+```{r}
+paths |> map(append_file)
+
+paths |> walk(append_file)
+
+con |> 
+  tbl("gapminder") |> 
+  count(year)
+```
+
+### **27.4.2 Writing csv files**
+
+```{r}
+by_clarity <- diamonds |> 
+  group_nest(clarity)
+
+by_clarity
+
+by_clarity$data[[1]]
+
+```
+
+```{r}
+by_clarity <- by_clarity |> 
+  mutate(path = str_glue("diamonds-{clarity}.csv"))
+
+by_clarity
+```
+
+```{r}
+write_csv(by_clarity$data[[1]], by_clarity$path[[1]])
+write_csv(by_clarity$data[[2]], by_clarity$path[[2]])
+write_csv(by_clarity$data[[3]], by_clarity$path[[3]])
+...
+write_csv(by_clarity$by_clarity[[8]], by_clarity$path[[8]])
+
+walk2(by_clarity$data, by_clarity$path, write_csv)
+```
+
+### **27.4.2 Writing csv files**
+
+```{r}
+
+carat_histogram <- function(df) {
+  ggplot(df, aes(x = carat)) + geom_histogram(binwidth = 0.1)  
+}
+
+carat_histogram(by_clarity$data[[1]])
+
+```
+
+```{r}
+by_clarity <- by_clarity |> 
+  mutate(
+    plot = map(data, carat_histogram),
+    path = str_glue("clarity-{clarity}.png")
+  )
+
+walk2(
+  by_clarity$path,
+  by_clarity$plot,
+  \(path, plot) ggsave(path, plot, width = 6, height = 6)
+)
+
+```
+
+
+```{r}
+ggsave(by_clarity$path[[1]], by_clarity$plot[[1]], width = 6, height = 6)
+ggsave(by_clarity$path[[2]], by_clarity$plot[[2]], width = 6, height = 6)
+ggsave(by_clarity$path[[3]], by_clarity$plot[[3]], width = 6, height = 6)
+...
+ggsave(by_clarity$path[[8]], by_clarity$plot[[8]], width = 6, height = 6)
+```
+### 27.5 Summary
+
+You’ve seen how to use explicit iteration to solve three problems that come up frequently when doing data science: manipulating multiple columns, reading multiple files, and saving multiple outputs. 

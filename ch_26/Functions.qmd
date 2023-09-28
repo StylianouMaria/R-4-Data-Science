@@ -1,0 +1,576 @@
+---
+title: "Functions"
+format: html
+editor: visual
+---
+
+## Function
+
+### **26.1 Introduction**
+
+-   Vector functions take one or more vectors as input and return a vector as output.
+
+-   Data frame functions take a data frame as input and return a data frame as output.
+
+-   Plot functions that take a data frame as input and return a plot as output.
+
+### **26.1.1 Prerequisites**
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+```
+
+## **26.2 Vector functions**
+
+```{r}
+df <- tibble (
+  a = rnorm(5),
+  b = rnorm(5),
+  c = rnorm(5),
+  d = rnorm(5)
+)
+df
+
+df |> mutate(
+  a = (a - min(a, na.rm = TRUE)) / 
+    (max(a, na.rm = TRUE) - min(a, na.rm = TRUE)),
+  b = (b - min(b, na.rm = TRUE)) / 
+    (max(b, na.rm = TRUE) - min(a, na.rm = TRUE)),
+  c = (c - min(c, na.rm = TRUE)) / 
+    (max(c, na.rm = TRUE) - min(c, na.rm = TRUE)),
+  d = (d - min(d, na.rm = TRUE)) / 
+    (max(d, na.rm = TRUE) - min(d, na.rm = TRUE)),
+)
+```
+
+You might be able to puzzle out that this rescales each column to have a range from 0 to 1. But did you spot the mistake? When Hadley wrote this code he made an error when copying-and-pasting and forgot to change an `a` to a `b`.
+
+### 26.2.1 **Writing a function**
+
+To write a function you need to first analyse your repeated code to figure what parts are constant and what parts vary.
+
+it\'s a little easier to see the pattern because each repetition is now one line:
+
+```{r}
+(a - min(a, na.rm = TRUE)) / (max(a, na.rm = TRUE) - min(a, na.rm = TRUE))
+(b - min(b, na.rm = TRUE)) / (max(b, na.rm = TRUE) - min(b, na.rm = TRUE))
+(c - min(c, na.rm = TRUE)) / (max(c, na.rm = TRUE) - min(c, na.rm = TRUE))
+(d - min(d, na.rm = TRUE)) / (max(d, na.rm = TRUE) - min(d, na.rm = TRUE))  
+```
+
+To make this a bit clearer we can replace the bit that varies with `█`:
+
+```{r}
+(█ - min(█, na.rm = TRUE)) / (max(█, na.rm = TRUE) - min(█, na.rm = TRUE))
+```
+
+To turn this into a function you need three things:
+
+1.  A **name**. Here we\'ll use `rescale01` because this function rescales a vector to lie between 0 and 1.
+
+2.  The **arguments**. The arguments are things that vary across calls and our analysis above tells us that we have just one. We\'ll call it `x` because this is the conventional name for a numeric vector.
+
+3.  The **body**. The body is the code that\'s repeated across all the calls.
+
+Then you create a function by following the template:
+
+```{r}
+#name <- function(arguments) {
+#  body
+#}
+
+#this leads to
+rescale01 <- function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+}
+
+#test the rescale01 function with few simple inputs
+
+rescale01(c(-10, 0, 10))
+rescale01(c(1, 2, 3, NA, 5))
+
+```
+
+Then you can rewrite the call to [`mutate()`](https://dplyr.tidyverse.org/reference/mutate.html) as:
+
+```{r}
+ df |> mutate(
+  a = rescale01(a),
+  b = rescale01(b),
+  c = rescale01(c),
+  d = rescale01(d),
+)
+```
+
+(In [Chapter 27](https://r4ds.hadley.nz/iteration), you\'ll learn how to use [`across()`](https://dplyr.tidyverse.org/reference/across.html) to reduce the duplication even further so all you need is `df |> mutate(across(a:d, rescale01))`).
+
+### **26.2.2 Improving our function**
+
+Compute both the minimum and maximum in one step with [`range()`](https://rdrr.io/r/base/range.html):
+
+```{r}
+rescale01 <- function(x) {
+  rng <- range(x, na.rm = TRUE)
+  (x - rng[1]) / (rng[2] - rng[1])
+}
+
+#Or you might try this function on a vector that includes an infinite value:
+
+x <- c(1:10, Inf)
+rescale01(x)
+```
+
+`range()` to ignore infinite values:
+
+```{r}
+rescale01 <- function(x) {
+  rng <- range(x, na.rm = TRUE, finite = TRUE)
+  (x - rng[1]) / (rng[2] - rng[1])
+}
+
+rescale01(x)
+```
+
+### **26.2.3 Mutate functions**
+
+\# \"mutate\" functions, i.e. functions that work well inside of [`mutate()`](https://dplyr.tidyverse.org/reference/mutate.html) and [`filter()`](https://dplyr.tidyverse.org/reference/filter.html) because they return an output of the same length as the input.
+
+Compute the Z-score, rescaling a vector to have a mean of zero and a standard deviation of one:
+
+```{r}
+z_score <- function(x) {
+  (x - mean(x, na.rm=TRUE)) / sd(x, na.rm = TRUE)
+}
+```
+
+Or maybe you want to wrap up a straightforward [`case_when()`](https://dplyr.tidyverse.org/reference/case_when.html) and give it a useful name. For example, this `clamp()` function ensures all values of a vector lie in between a minimum or a maximum:
+
+```{r}
+clamp <- function(x, min, max) {
+  case_when(
+    x < min ~ min,
+    x > max ~ max,
+    .default = x
+  )
+}
+
+clamp(1:10, min = 3, max = 7)
+```
+
+String manipulation:
+
+```{r}
+first_upper  <- function(x) {
+  str_sub(x, 1, 1) <- str_to_upper(str_sub(x, 1, 1))
+  x
+}
+first_upper("hello")
+```
+
+Strip percent signs, commas, and dollar signs from a string before converting it into a number:
+
+```{r}
+# https://twitter.com/NVlabormarket/status/1571939851922198530
+clean_number <- function(x) {
+  is_pct <- str_detect(x, "%")
+  num <- x |> 
+    str_remove_all("%") |> 
+    str_remove_all(",") |> 
+    str_remove_all(fixed("$")) |> 
+    as.numeric(x)
+  if_else(is_pct, num / 100, num)
+}
+
+clean_number("$12,300")
+
+clean_number("45%")
+```
+
+For example, if you have a bunch of variables that record missing values as 997, 998, or 999, you might want to write a function to replace them with `NA`:
+
+```{r}
+fix_na <- function(x) {
+  if_else(x %in% c(997, 998, 999), NA, x)
+}
+```
+
+### **26.2.4 Summary functions** 
+
+Another important family of vector functions is summary functions,
+
+```{r}
+commas <- function(x) {
+  str_flatten(x, collapse = ",", last = " and ")
+}
+commas(c("cat", "dog", "pigeon"))
+
+```
+
+Or you might wrap up a simple computation, like for the coefficient of variation, which divides the standard deviation by the mean:
+
+```{r}
+cv <- function(x, na.rm = FALSE) {
+  sd(x, na.rm = na.rm) / mean(x, na.rm = na.rm)
+}
+
+cv(runif(100, min = 0, max = 50))
+
+cv(runif(100, min = 0, max = 500))
+```
+
+or make a common pattern easier to remember by giving it a memorable name:
+
+```{r}
+# https://twitter.com/gbganalyst/status/1571619641390252033
+n_missing <- function(x) {
+  sum(is.na(x))
+} 
+```
+
+You can also write functions with multiple vector inputs.
+
+```{r}
+# https://twitter.com/neilgcurrie/status/1571607727255834625
+mape <- function(actual, predicted) {
+  sum(abs((actual - predicted) / actual)) / length(actual)
+}
+
+```
+
+## **26.3 Data frame functions** 
+
+Indirection and how you can overcome it with embracing, `{{ }}`
+
+### **26.3.1 Indirection and tidy evaluation**
+
+The goal of the function `grouped_mean()`. is to compute the mean of `mean_var` grouped by `group_var`:
+
+```{r}
+grouped_mean <- function(df, group_var, mean_var) {
+  df |> 
+    group_by(group_var) |> 
+    summarize(mean(mean_var))
+}
+diamonds |> grouped_mean(cut, carat)
+```
+
+Use a made up df to show the problem:
+
+```{r}
+df <- tibble(
+  mean_var = 1,
+  group_var = "g",
+  group = 1,
+  x = 10,
+  y = 100
+)
+
+df |> grouped_mean(group, x)
+df |> grouped_mean(group, y)
+
+```
+
+`grouped_mean()` it always does `df |> group_by(group_var) |> summarize(mean(mean_var))`, instead of `df |> group_by(group) |> summarize(mean(x))` or `df |> group_by(group) |> summarize(mean(y))`.
+
+This is a problem of indirection, and it arises because dplyr uses **tidy evaluation** to allow you to refer to the names of variables inside your data frame without any special treatment.
+
+Here we need some way to tell `group_mean()` and [`summarize()`](https://dplyr.tidyverse.org/reference/summarise.html) not to treat `group_var` and `mean_var` as the name of the variables, but instead look inside them for the variable we actually want to use.
+
+Tidy evaluation includes a solution to this problem called **embracing** 🤗. Embracing a variable means to wrap it in braces so (e.g.) `var` becomes `{{ var }}`. One way to remember what\'s happening is to think of `{{ }}` as looking down a tunnel --- `{{ var }}` will make a dplyr function look inside of `var` rather than looking for a variable called `var`.
+
+```{r}
+grouped_mean <- function(df, group_var, mean_var) {
+  df |> 
+    group_by({{ group_var }}) |> 
+    summarize(mean({{ mean_var }}))
+}
+
+df |> grouped_mean(group, x)
+```
+
+### **26.3.2 When to embrace?**
+
+Sub-types of tidy evaluation:
+
+-   **Data-masking**: this is used in functions like [`arrange()`](https://dplyr.tidyverse.org/reference/arrange.html), [`filter()`](https://dplyr.tidyverse.org/reference/filter.html), and [`summarize()`](https://dplyr.tidyverse.org/reference/summarise.html) that compute with variables.
+
+-   **Tidy-selection**: this is used for functions like [`select()`](https://dplyr.tidyverse.org/reference/select.html), [`relocate()`](https://dplyr.tidyverse.org/reference/relocate.html), and [`rename()`](https://dplyr.tidyverse.org/reference/rename.html) that select variables.
+
+### **26.3.3 Common use cases**
+
+```{r}
+summary6 <- function(data, var) {
+  data |> summarize(
+    min = min({{ var }}, na.rm = TRUE),
+    mean = mean({{ var }}, na.rm = TRUE),
+    median = median({{ var }}, na.rm = TRUE),
+    max = max({{ var }}, na.rm = TRUE),
+    n = n(),
+    n_miss = sum(is.na({{ var }})),
+    .groups = "drop"
+  )
+}
+
+diamonds |> summary6(carat)
+```
+
+`.groups = "drop"` to both avoid the message and leave the data in an ungrouped state.)
+
+```{r}
+diamonds |>
+  group_by(cut) |>
+  summary6(carat)
+
+#summarize computed variables
+diamonds |> 
+  group_by(cut) |> 
+  summary6(log10(carat))
+```
+
+Count version to compute proportions.This function has three arguments: `df`, `var`, and `sort`, and only `var` needs to be embraced because it\'s passed to [`count()`](https://dplyr.tidyverse.org/reference/count.html) which uses data-masking for all variables.
+
+```{r}
+# https://twitter.com/Diabb6/status/1571635146658402309
+count_prop <- function(df, var, sort = FALSE) {
+  df |>
+    count({{ var }}, sort = sort) |>
+    mutate(prop = n / sum(n))
+}
+
+diamonds |> count_prop(clarity)
+```
+
+```{r}
+unique_where <- function(df, condition, var) {
+  df |> 
+    filter({{ condition }}) |> 
+    distinct({{ var }}) |> 
+    arrange({{ var }})
+}
+
+# Find all the destinations in December
+flights |> unique_where(month == 12, dest)
+```
+
+We\'ve made all these examples to take a data frame as the first argument, but if you\'re working repeatedly with the same data, it can make sense to hardcode it
+
+```{r}
+subset_flights <- function(rows, cols) {
+  flights |> 
+    filter({{ rows }}) |> 
+    select(time_hour, carrier, flight, {{ cols }})
+}
+
+```
+
+### **26.3.4 Data-masking vs. tidy-selection** 
+
+To select variables inside a function that uses data-masking, to write a count_missing():
+
+```{r}
+count_missing <-function(df, group_vars, x_var){
+  df |>
+    group_by({{ group_vars }}) |>
+    summarize(
+      n_miss = sum(is.na({{ x_var }})),
+      .groups = "drop"
+    )
+}
+
+flights |> 
+  count_missing(c(year, month, day), dep_time)
+```
+
+This doesn\'t work because [`group_by()`](https://dplyr.tidyverse.org/reference/group_by.html) uses data-masking, not tidy-selection. Work around using pick():
+
+```{r}
+count_missing <- function(df, group_vars, x_var) {
+  df |> 
+    group_by(pick({{ group_vars }})) |> 
+    summarize(
+      n_miss = sum(is.na({{ x_var }})),
+      .groups = "drop"
+  )
+}
+
+flights |> 
+  count_missing(c(year, month, day), dep_time)
+```
+
+[`pick()`](https://dplyr.tidyverse.org/reference/pick.html) is to make a 2d table of counts. Here we count using all the variables in the `rows` and `columns`, then use [`pivot_wider()`](https://tidyr.tidyverse.org/reference/pivot_wider.html) to rearrange the counts into a grid:
+
+```{r}
+# https://twitter.com/pollicipes/status/1571606508944719876
+count_wide <- function(data, rows, cols) {
+  data |> 
+    count(pick(c({{ rows }}, {{ cols }}))) |> 
+    pivot_wider(
+      names_from = {{ cols }}, 
+      values_from = n,
+      names_sort = TRUE,
+      values_fill = 0
+    )
+}
+
+diamonds |> count_wide(c(clarity, color), cut)
+```
+
+## **26.4 Plot functions**
+
+[`aes()`](https://ggplot2.tidyverse.org/reference/aes.html) is a data-masking function
+
+```{r}
+diamonds |> 
+  ggplot(aes(x = carat)) +
+  geom_histogram(binwidth = 0.1)
+
+diamonds |> 
+  ggplot(aes(x = carat)) +
+  geom_histogram(binwidth = 0.05)
+```
+
+```{r}
+histogram <- function(df, var, binwidth = NULL) {
+  df |> 
+    ggplot(aes(x = {{ var }})) +
+    geom_histogram(binwidth = binwidth)
+}
+
+diamonds |> histogram(carat, 0.1)
+```
+
+```{r}
+diamonds |> 
+  histogram(carat, 0.1) +
+  labs(x = "Size (in carats)", y = "Number of diamonds")
+```
+
+### **26.4.1 More variables**
+
+It\'s straightforward to add more variables to the mix. An easy way to eyeball whether or not a dataset is linear by overlaying a smooth line and a straight line:
+
+```{r}
+# https://twitter.com/tyler_js_smith/status/1574377116988104704
+linearity_check <- function(df, x, y) {
+  df |>
+    ggplot(aes(x = {{ x }}, y = {{ y }})) +
+    geom_point() +
+    geom_smooth(method = "loess", formula = y ~ x, color = "red", se = FALSE) +
+    geom_smooth(method = "lm", formula = y ~ x, color = "blue", se = FALSE) 
+}
+
+starwars |> 
+  filter(mass < 1000) |> 
+  linearity_check(mass, height)
+```
+
+alternative to colored scatterplots for very large datasets where overplotting is a problem:
+
+```{r}
+# https://twitter.com/ppaxisa/status/1574398423175921665
+hex_plot <- function(df, x, y, z, bins = 20, fun = "mean") {
+  df |> 
+    ggplot(aes(x = {{ x }}, y = {{ y }}, z = {{ z }})) + 
+    stat_summary_hex(
+      aes(color = after_scale(fill)), # make border same color as fill
+      bins = bins, 
+      fun = fun,
+    )
+}
+
+diamonds |> hex_plot(carat, price, depth)
+```
+
+### **26.4.2 Combining with other tidyverse**
+
+Do a vertical bar chart where you automatically sort the bars in frequency order using [`fct_infreq()`](https://forcats.tidyverse.org/reference/fct_inorder.html).
+
+```{r}
+sorted_bars <- function(df, var) {
+  df |> 
+    mutate({{ var }} := fct_rev(fct_infreq({{ var }})))  |>
+    ggplot(aes(y = {{ var }})) +
+    geom_bar()
+}
+
+diamonds |> sorted_bars(clarity)
+```
+
+We use the special operator `:=` which tidy evaluation treats in exactly the same way as `=`.
+
+```{r}
+conditional_bars <- function(df, condition, var) {
+  df |> 
+    filter({{ condition }}) |> 
+    ggplot(aes(x = {{ var }})) + 
+    geom_bar()
+}
+
+diamonds |> conditional_bars(cut == "Good", clarity)
+```
+
+You can find a cool application at <https://gist.github.com/GShotwell/b19ef520b6d56f61a830fabb3454965b>; it uses the axis labels to display the highest value
+
+### **26.4.3 Labeling**
+
+```{r}
+histogram <- function(df, var, binwidth = NULL) {
+  df |> 
+    ggplot(aes(x = {{ var }})) + 
+    geom_histogram(binwidth = binwidth)
+}
+```
+
+Wouldn\'t it be nice if we could label the output with the variable and the bin width that was used?rlang. rlang is a low-level package that\'s used by just about every other package in the tidyverse because it implements tidy evaluation (as well as many other useful tools).
+
+[`rlang::englue()`](https://rlang.r-lib.org/reference/englue.html). This works similarly to [`str_glue()`](https://stringr.tidyverse.org/reference/str_glue.html), so any value wrapped in [`{ }`](https://rdrr.io/r/base/Paren.html) will be inserted into the string.
+
+```{r}
+histogram <- function(df, var, binwidth) {
+  label <- rlang::englue("A histogram of {{var}} with binwidth {binwidth}")
+  
+  df |> 
+    ggplot(aes(x = {{ var }})) + 
+    geom_histogram(binwidth = binwidth) + 
+    labs(title = label)
+}
+
+diamonds |> histogram(carat, 0.1)
+```
+
+## **26.5 Style**
+
+```{r}
+# Too short
+#f()
+
+# Not a verb, or descriptive
+#my_awesome_function()
+
+# Long, but clear
+#impute_missing()
+#collapse_years()
+
+#function() should always be followed by squiggly brackets ({}), and the contents should be indented by an additional two spaces.
+# Missing extra two spaces
+density <- function(color, facets, binwidth = 0.1) {
+diamonds |> 
+  ggplot(aes(x = carat, y = after_stat(density), color = {{ color }})) +
+  geom_freqpoly(binwidth = binwidth) +
+  facet_wrap(vars({{ facets }}))
+}
+
+# Pipe indented incorrectly
+density <- function(color, facets, binwidth = 0.1) {
+  diamonds |> 
+  ggplot(aes(x = carat, y = after_stat(density), color = {{ color }})) +
+  geom_freqpoly(binwidth = binwidth) +
+  facet_wrap(vars({{ facets }}))
+}
+
+```
+
+## 26.6 Summary
+
+How to write functions for three useful scenarios: creating a vector, creating a data frames, or creating a plot.
